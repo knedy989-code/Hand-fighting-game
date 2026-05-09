@@ -1,211 +1,114 @@
+const express = require('express');
+const app = express();
+const http = require('http').Server(app);
+const io = require('socket.io')(http);
+
+let queue = [];
+
+// --- THE GAME UI (HTML) ---
+const htmlContent = `
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Fight Online | Global Queue</title>
-    
-    <!-- External Dependencies -->
+    <title>Hand Fighter Online</title>
     <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
-        body { 
-            margin: 0; 
-            background: #000; 
-            color: white; 
-            font-family: sans-serif; 
-            overflow: hidden; 
-            touch-action: none; 
-        }
-
-        /* Loading & Queue Status */
-        #status-overlay {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            z-index: 100;
-        }
-
-        #status-text { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
-
-        /* Battle UI */
-        #game-ui {
-            position: absolute;
-            top: 30px;
-            width: 100%;
-            display: none;
-            justify-content: space-around;
-            z-index: 50;
-        }
-
-        .hp-bar {
-            width: 40%;
-            height: 20px;
-            background: #222;
-            border: 2px solid #fff;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-
-        .hp-fill { height: 100%; width: 100%; transition: width 0.2s; }
-        #my-hp-fill { background: #00ff88; }
-        #enemy-hp-fill { background: #ff3300; }
-
-        canvas { width: 100vw; height: 100vh; display: block; object-fit: cover; }
-
-        /* Hidden Admin Console */
-        #admin-panel {
-            display: none;
-            position: fixed;
-            bottom: 30px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.9);
-            border: 2px solid #00ff88;
-            padding: 15px;
-            border-radius: 10px;
-            z-index: 200;
-        }
-
-        .admin-btn {
-            background: #111;
-            color: #00ff88;
-            border: 1px solid #00ff88;
-            padding: 10px;
-            margin: 5px;
-            cursor: pointer;
-            width: 150px;
-            font-weight: bold;
-        }
+        body { margin: 0; background: #000; color: #0f8; font-family: sans-serif; overflow: hidden; }
+        #status { position: absolute; top: 50%; width: 100%; text-align: center; font-size: 2em; }
+        #hp-container { position: absolute; top: 20px; width: 100%; display: none; justify-content: space-around; }
+        .bar { width: 40%; height: 20px; border: 2px solid #fff; }
+        #my-hp { background: #0f8; width: 100%; height: 100%; transition: 0.2s; }
+        #enemy-hp { background: #f30; width: 100%; height: 100%; transition: 0.2s; }
+        canvas { width: 100vw; height: 100vh; object-fit: cover; }
     </style>
 </head>
 <body>
-
-    <div id="status-overlay">
-        <div id="status-text">WAKING UP SERVER...</div>
+    <div id="status">CONNECTING TO QUEUE...</div>
+    <div id="hp-container">
+        <div class="bar"><div id="my-hp"></div></div>
+        <div class="bar"><div id="enemy-hp"></div></div>
     </div>
-
-    <div id="game-ui">
-        <div class="hp-bar"><div id="my-hp-fill" class="hp-fill"></div></div>
-        <div class="hp-bar"><div id="enemy-hp-fill" class="hp-fill"></div></div>
-    </div>
-
-    <div id="admin-panel">
-        <div style="font-size: 12px; color: #888; margin-bottom: 5px;">MASTER ADMIN</div>
-        <button class="admin-btn" onclick="sendAdminCmd(false)">SHUT DOWN</button><br>
-        <button class="admin-btn" onclick="sendAdminCmd(true)">OPEN SERVER</button>
-    </div>
-
     <video id="input_video" style="display:none" playsinline></video>
     <canvas id="output_canvas"></canvas>
 
     <script type="module">
-        const socket = io(); 
-        const statusText = document.getElementById('status-text');
-        const adminPanel = document.getElementById('admin-panel');
-        const ADMIN_KEY = 'kj989_master_token';
-        
-        let roomId = null;
-        let myHP = 100, enemyHP = 100;
-        let enemyPos = { x: 0, y: 0 };
+        const socket = io();
+        let roomId = null, myHP = 100, enemyPos = {x:0, y:0};
+        const status = document.getElementById('status');
 
-        // 1. ADMIN & QUEUE LOGIC
-        socket.on('offerAdminRole', (token) => {
-            if (!localStorage.getItem(ADMIN_KEY)) {
-                localStorage.setItem(ADMIN_KEY, token);
-                alert("IPAD POSSESSION: Master Admin Recognition Active.");
-            }
-        });
-
-        socket.on('statusUpdate', (msg) => { statusText.innerText = msg; });
-
-        socket.on('matchFound', (data) => {
+        socket.on('matchFound', data => {
             roomId = data.room;
-            document.getElementById('status-overlay').style.display = 'none';
-            document.getElementById('game-ui').style.display = 'flex';
+            status.style.display = 'none';
+            document.getElementById('hp-container').style.display = 'flex';
         });
 
-        socket.on('enemyMove', (pos) => { enemyPos = pos; });
-
+        socket.on('enemyMove', pos => enemyPos = pos);
         socket.on('tookDamage', () => {
             myHP -= 5;
-            document.getElementById('my-hp-fill').style.width = myHP + "%";
-            if (myHP <= 0) { alert("KO! YOU LOST."); location.reload(); }
+            document.getElementById('my-hp').style.width = myHP + "%";
+            if(myHP <= 0) { alert("KO!"); location.reload(); }
         });
 
-        // 2. HAND TRACKING ENGINE
-        const canvasElement = document.getElementById('output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-
-        function onResults(results) {
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.translate(canvasElement.width, 0);
-            canvasCtx.scale(-1, 1);
-            
-            // Draw camera feed
-            canvasCtx.globalAlpha = 0.5;
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.globalAlpha = 1.0;
+        const canvas = document.getElementById('output_canvas');
+        const ctx = canvas.getContext('2d');
+        const hands = new Hands({locateFile: (file) => \`https://cdn.jsdelivr.net/npm/@mediapipe/hands/\${file}\`});
+        
+        hands.onResults(results => {
+            ctx.save();
+            ctx.clearRect(0,0,canvas.width, canvas.height);
+            ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.globalAlpha = 1;
 
             if (results.multiHandLandmarks && results.multiHandLandmarks[0]) {
                 const wrist = results.multiHandLandmarks[0][0];
-                const myPos = { x: (1 - wrist.x) * canvasElement.width, y: wrist.y * canvasElement.height };
-
-                if (roomId) {
-                    socket.emit('move', { room: roomId, pos: myPos });
-                    
-                    // Attack logic
-                    let dist = Math.sqrt((myPos.x - enemyPos.x)**2 + (myPos.y - enemyPos.y)**2);
-                    if (dist < 70) {
-                        socket.emit('attack', { room: roomId });
+                const myPos = {x: (1-wrist.x)*canvas.width, y: wrist.y*canvas.height};
+                if(roomId) {
+                    socket.emit('move', {room: roomId, pos: myPos});
+                    if(Math.sqrt((myPos.x-enemyPos.x)**2 + (myPos.y-enemyPos.y)**2) < 70) {
+                        socket.emit('attack', {room: roomId});
                     }
                 }
-
-                // Draw Local Player (Green)
-                canvasCtx.fillStyle = "#00ff88";
-                canvasCtx.beginPath(); canvasCtx.arc(myPos.x, myPos.y, 25, 0, Math.PI*2); canvasCtx.fill();
+                ctx.fillStyle = '#0f8'; ctx.beginPath(); ctx.arc(myPos.x, myPos.y, 20, 0, Math.PI*2); ctx.fill();
             }
-
-            // Draw Real Opponent (Red)
-            if (roomId) {
-                canvasCtx.fillStyle = "#ff3300";
-                canvasCtx.beginPath(); canvasCtx.arc(enemyPos.x, enemyPos.y, 25, 0, Math.PI*2); canvasCtx.fill();
+            if(roomId) {
+                ctx.fillStyle = '#f30'; ctx.beginPath(); ctx.arc(enemyPos.x, enemyPos.y, 20, 0, Math.PI*2); ctx.fill();
             }
-            canvasCtx.restore();
-        }
-
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 1 });
-        hands.onResults(onResults);
+            ctx.restore();
+        });
 
         const camera = new Camera(document.getElementById('input_video'), {
             onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
-            width: 1280, height: 720
+            width: 640, height: 480
         });
-
-        camera.start().then(() => {
-            statusText.innerText = "QUEUING FOR OPPONENT...";
-            socket.emit('joinQueue');
-        });
-
-        // 3. IPAD ADMIN GESTURE
-        let lastTap = 0;
-        document.addEventListener('touchend', () => {
-            const now = Date.now();
-            if (now - lastTap < 300 && localStorage.getItem(ADMIN_KEY)) {
-                adminPanel.style.display = adminPanel.style.display === 'block' ? 'none' : 'block';
-            }
-            lastTap = now;
-        });
-
-        window.sendAdminCmd = (open) => {
-            socket.emit('adminCommand', { token: localStorage.getItem(ADMIN_KEY), open });
-            adminPanel.style.display = 'none';
-        };
+        camera.start().then(() => socket.emit('joinQueue'));
     </script>
 </body>
 </html>
+\`;
+
+// --- THE SERVER BRAIN (Node.js) ---
+app.get('/', (req, res) => res.send(htmlContent));
+
+io.on('connection', (socket) => {
+    socket.on('joinQueue', () => {
+        queue.push(socket);
+        if (queue.length >= 2) {
+            const p1 = queue.shift();
+            const p2 = queue.shift();
+            const room = "room_" + p1.id;
+            p1.join(room); p2.join(room);
+            io.to(room).emit('matchFound', { room });
+        }
+    });
+
+    socket.on('move', (data) => socket.to(data.room).emit('enemyMove', data.pos));
+    socket.on('attack', (data) => socket.to(data.room).emit('tookDamage'));
+    socket.on('disconnect', () => { queue = queue.filter(s => s.id !== socket.id); });
+});
+
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log('Server online!'));

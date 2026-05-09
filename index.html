@@ -3,38 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Fight | Cross-Browser Sync</title>
+    <title>Hand Fight | Random Realms</title>
     
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <style>
-        body { margin: 0; background: #000; color: #0f8; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        body { margin: 0; background: #000; color: #0f8; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
+        
+        /* The Random Background Layer */
+        #bg-image {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            object-fit: cover; opacity: 0.6; z-index: -1;
+        }
+
         #menu { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 100; background: rgba(10,10,10,0.98); padding: 25px; 
-            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 80%; max-width: 300px;
+            z-index: 100; background: rgba(0,0,0,0.9); padding: 30px; 
+            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 85%; max-width: 300px;
+            box-shadow: 0 0 30px rgba(0,255,136,0.3);
         }
+
         .hp-ui { position: absolute; top: 20px; width: 100%; display: none; justify-content: space-around; z-index: 10; }
-        .bar { width: 40%; height: 20px; border: 2px solid #fff; border-radius: 10px; overflow: hidden; background: #333; }
-        .fill { height: 100%; width: 100%; transition: 0.1s; }
-        #my-hp { background: #0f8; }
-        #enemy-hp { background: #f30; }
-        input { width: 90%; padding: 12px; margin-bottom: 10px; background: #111; color: #0f8; border: 1px solid #0f8; text-align: center; border-radius: 10px; font-size: 18px;}
-        button { background: #0f8; color: #000; border: none; padding: 15px; font-weight: bold; cursor: pointer; border-radius: 10px; width: 100%; margin-top: 10px;}
-        canvas { width: 100vw; height: 100vh; object-fit: cover; }
+        .bar { width: 42%; height: 25px; border: 2px solid #fff; border-radius: 15px; overflow: hidden; background: rgba(0,0,0,0.5); }
+        .fill { height: 100%; width: 100%; transition: width 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28); }
+        #my-hp { background: linear-gradient(90deg, #0f8, #00ffaa); }
+        #enemy-hp { background: linear-gradient(90deg, #f30, #ff5500); }
+
+        button { background: #0f8; color: #000; border: none; padding: 15px; font-weight: bold; cursor: pointer; border-radius: 10px; width: 100%; font-size: 18px; margin-top: 10px;}
+        input { width: 90%; padding: 15px; margin-bottom: 10px; background: #111; color: #fff; border: 1px solid #0f8; text-align: center; border-radius: 10px; font-size: 24px;}
+        
+        canvas { width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0;}
     </style>
 </head>
 <body>
 
+    <!-- This pulls a random gaming/fantasy background every time -->
+    <img id="bg-image" src="https://picsum.photos/1280/720?grayscale&blur=2" alt="background">
+
     <div id="menu">
-        <h2 style="margin:0">HAND FIGHT</h2>
-        <button id="cam-btn" onclick="initCamera()">1. ENABLE CAMERA</button>
-        <div id="p2p-controls" style="display:none">
-            <p>YOUR ID: <b id="display-id">...</b></p>
+        <h2 style="margin:0; letter-spacing: 2px;">NEON STRIKE</h2>
+        <div id="setup">
+            <button onclick="initCamera()">ACTIVATE CAMERA</button>
+        </div>
+        <div id="p2p" style="display:none">
+            <p style="color:#888">YOUR FIGHTER ID:</p>
+            <div id="display-id" style="font-size: 35px; font-weight: bold; margin-bottom: 15px;">----</div>
             <input type="number" id="join-id" placeholder="ENEMY ID">
-            <button onclick="connectFighter()">2. START FIGHT</button>
+            <button onclick="connectFighter()">BATTLE!</button>
         </div>
     </div>
 
@@ -43,109 +60,111 @@
         <div class="bar"><div id="enemy-hp" class="fill"></div></div>
     </div>
 
-    <video id="input_video" style="display:none" playsinline></video>
+    <video id="input_video" style="display:none" playsinline muted></video>
     <canvas id="output_canvas"></canvas>
 
     <script type="module">
-        // Added ICE Servers to help Chrome and Safari talk to each other
-        const peerConfig = {
-            config: {
-                'iceServers': [
-                    { url: 'stun:stun.l.google.com:19302' },
-                    { url: 'stun:stun1.l.google.com:19302' }
-                ]
-            }
-        };
+        // Set random background from Unsplash (Gaming theme)
+        const bg = document.getElementById('bg-image');
+        bg.src = `https://source.unsplash.com/random/1280x720/?cyberpunk,space,forest,fire&sig=${Math.random()}`;
 
-        const myShortId = Math.floor(1000 + Math.random() * 8999).toString();
-        const peer = new Peer(myShortId, peerConfig);
+        const peer = new Peer(Math.floor(1000 + Math.random() * 8999).toString());
         let connection = null;
         let myHP = 100, enemyPos = {x:0, y:0};
 
         peer.on('open', id => document.getElementById('display-id').innerText = id);
 
         window.initCamera = async () => {
-            document.getElementById('cam-btn').style.display = 'none';
-            document.getElementById('p2p-controls').style.display = 'block';
             await camera.start();
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('p2p').style.display = 'block';
         };
 
         peer.on('connection', conn => {
             connection = conn;
-            setupSync();
+            setupGame();
         });
 
         window.connectFighter = () => {
-            const code = document.getElementById('join-id').value;
-            connection = peer.connect(code);
-            setupSync();
+            connection = peer.connect(document.getElementById('join-id').value);
+            setupGame();
         };
 
-        function setupSync() {
+        function setupGame() {
             connection.on('open', () => {
                 document.getElementById('menu').style.display = 'none';
                 document.getElementById('hp-layer').style.display = 'flex';
-                // Handshake for Safari
-                connection.send({type: 'ready'});
+                connection.send({type: 'start'});
             });
             connection.on('data', data => {
-                if(data.type === 'ready') startGame();
+                if(data.type === 'start') {
+                    document.getElementById('menu').style.display = 'none';
+                    document.getElementById('hp-layer').style.display = 'flex';
+                }
                 if(data.type === 'pos') enemyPos = data.val;
                 if(data.type === 'hit') {
                     myHP -= 5;
                     document.getElementById('my-hp').style.width = myHP + "%";
-                    if(myHP <= 0) { alert("KO!"); location.reload(); }
+                    if(myHP <= 0) { alert("DEFEATED!"); location.reload(); }
                 }
             });
-        }
-
-        function startGame() {
-            document.getElementById('menu').style.display = 'none';
-            document.getElementById('hp-layer').style.display = 'flex';
         }
 
         const canvas = document.getElementById('output_canvas');
         const ctx = canvas.getContext('2d');
 
-        function drawPlayer(x, y, color, label) {
+        function drawWarrior(x, y, color, isEnemy) {
+            ctx.save();
+            // Glow effect
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = color;
+            
+            // Warrior Body
             ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(x, y, 35, 0, Math.PI*2); ctx.fill();
-            ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
-            // Simple Face
-            ctx.fillStyle = "black";
-            ctx.beginPath(); ctx.arc(x-10, y-5, 4, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.arc(x+10, y-5, 4, 0, Math.PI*2); ctx.fill();
-            // Name
-            ctx.fillStyle = "white"; ctx.font = "bold 16px sans-serif";
-            ctx.fillText(label, x, y + 60);
+            ctx.beginPath();
+            ctx.arc(x, y, 40, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Warrior Helmet Visor
+            ctx.fillStyle = "rgba(0,0,0,0.7)";
+            ctx.fillRect(x - 25, y - 10, 50, 15);
+
+            // Health/Name Tag
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "white";
+            ctx.font = "bold 16px sans-serif";
+            ctx.fillText(isEnemy ? "ENEMY" : "YOU", x - 20, y - 55);
+            ctx.restore();
         }
 
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
         hands.onResults(results => {
-            ctx.save();
             ctx.clearRect(0,0,canvas.width, canvas.height);
-            ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
             
+            // We draw the camera feed slightly transparent so the background shows through
+            ctx.save();
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
             ctx.globalAlpha = 0.4;
-            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-            ctx.globalAlpha = 1;
+            if(results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
 
             if (results.multiHandLandmarks && results.multiHandLandmarks[0]) {
                 const wrist = results.multiHandLandmarks[0][0];
-                const myPos = {x: (1-wrist.x)*canvas.width, y: wrist.y*canvas.height};
+                const myX = (1 - wrist.x) * canvas.width;
+                const myY = wrist.y * canvas.height;
                 
                 if(connection && connection.open) {
-                    connection.send({type: 'pos', val: myPos});
-                    let d = Math.sqrt((myPos.x-enemyPos.x)**2 + (myPos.y-enemyPos.y)**2);
+                    connection.send({type: 'pos', val: {x: myX, y: myY}});
+                    let d = Math.sqrt((myX - enemyPos.x)**2 + (myY - enemyPos.y)**2);
                     if(d < 70) connection.send({type: 'hit'});
                 }
-                drawPlayer(myPos.x, myPos.y, "#0f8", "YOU");
+                drawWarrior(myX, myY, "#00ffaa", false);
             }
             
             if(connection && connection.open) {
-                drawPlayer(enemyPos.x, enemyPos.y, "#f30", "ENEMY");
+                drawWarrior(enemyPos.x, enemyPos.y, "#ff3300", true);
             }
-            ctx.restore();
         });
 
         const camera = new Camera(document.getElementById('input_video'), {

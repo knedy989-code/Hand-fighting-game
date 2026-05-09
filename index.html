@@ -3,172 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Fight | Random Realms</title>
+    <title>Universal Hand Fight</title>
     
+    <!-- Using older, more stable versions of libraries for better mobile support -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <style>
-        body { margin: 0; background: #000; color: #0f8; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
+        body { margin: 0; background: #000; color: #0f8; font-family: sans-serif; overflow: hidden; touch-action: none; -webkit-user-select: none; }
         
-        /* The Random Background Layer */
-        #bg-image {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-            object-fit: cover; opacity: 0.6; z-index: -1;
+        #menu-overlay { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 100; display: flex; 
+            flex-direction: column; align-items: center; justify-content: center;
         }
 
-        #menu { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 100; background: rgba(0,0,0,0.9); padding: 30px; 
-            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 85%; max-width: 300px;
-            box-shadow: 0 0 30px rgba(0,255,136,0.3);
-        }
-
-        .hp-ui { position: absolute; top: 20px; width: 100%; display: none; justify-content: space-around; z-index: 10; }
-        .bar { width: 42%; height: 25px; border: 2px solid #fff; border-radius: 15px; overflow: hidden; background: rgba(0,0,0,0.5); }
-        .fill { height: 100%; width: 100%; transition: width 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28); }
-        #my-hp { background: linear-gradient(90deg, #0f8, #00ffaa); }
-        #enemy-hp { background: linear-gradient(90deg, #f30, #ff5500); }
-
-        button { background: #0f8; color: #000; border: none; padding: 15px; font-weight: bold; cursor: pointer; border-radius: 10px; width: 100%; font-size: 18px; margin-top: 10px;}
-        input { width: 90%; padding: 15px; margin-bottom: 10px; background: #111; color: #fff; border: 1px solid #0f8; text-align: center; border-radius: 10px; font-size: 24px;}
+        .box { background: #111; border: 3px solid #0f8; padding: 25px; border-radius: 20px; width: 280px; text-align: center; }
         
-        canvas { width: 100vw; height: 100vh; object-fit: cover; position: absolute; top: 0; left: 0;}
+        .hp-layer { position: absolute; top: 20px; width: 100%; display: none; justify-content: space-around; z-index: 50; }
+        .hp-bar { width: 42%; height: 20px; border: 2px solid #fff; border-radius: 10px; background: #333; overflow: hidden; }
+        .hp-fill { height: 100%; width: 100%; transition: width 0.1s; }
+
+        button { background: #0f8; color: #000; border: none; padding: 15px; font-weight: bold; border-radius: 10px; width: 100%; font-size: 18px; margin-top: 10px; }
+        input { width: 85%; padding: 12px; background: #000; color: #0f8; border: 1px solid #0f8; font-size: 20px; text-align: center; border-radius: 8px; }
+        
+        canvas { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
     </style>
 </head>
 <body>
 
-    <!-- This pulls a random gaming/fantasy background every time -->
-    <img id="bg-image" src="https://picsum.photos/1280/720?grayscale&blur=2" alt="background">
-
-    <div id="menu">
-        <h2 style="margin:0; letter-spacing: 2px;">NEON STRIKE</h2>
-        <div id="setup">
-            <button onclick="initCamera()">ACTIVATE CAMERA</button>
+    <div id="menu-overlay">
+        <div class="box" id="start-box">
+            <h2 style="margin:0">HAND FIGHTER</h2>
+            <p style="font-size:12px; color:#aaa;">Works on Safari & Google App</p>
+            <button onclick="startEverything()">TAP TO START</button>
         </div>
-        <div id="p2p" style="display:none">
-            <p style="color:#888">YOUR FIGHTER ID:</p>
-            <div id="display-id" style="font-size: 35px; font-weight: bold; margin-bottom: 15px;">----</div>
-            <input type="number" id="join-id" placeholder="ENEMY ID">
-            <button onclick="connectFighter()">BATTLE!</button>
+        
+        <div class="box" id="connect-box" style="display:none">
+            <p>YOUR ID: <b id="my-id-text" style="font-size:25px; color:#fff">....</b></p>
+            <input type="number" id="target-id" placeholder="OPPONENT ID">
+            <button onclick="connectFighters()">JOIN BATTLE</button>
         </div>
     </div>
 
-    <div id="hp-layer" class="hp-ui">
-        <div class="bar"><div id="my-hp" class="fill"></div></div>
-        <div class="bar"><div id="enemy-hp" class="fill"></div></div>
+    <div class="hp-layer" id="ui">
+        <div class="hp-bar"><div id="my-hp" class="hp-fill" style="background:#0f8"></div></div>
+        <div class="hp-bar"><div id="enemy-hp" class="hp-fill" style="background:#f30"></div></div>
     </div>
 
-    <video id="input_video" style="display:none" playsinline muted></video>
-    <canvas id="output_canvas"></canvas>
+    <!-- Safari needs muted and playsinline to show video -->
+    <video id="v" style="display:none" playsinline muted autoplay></video>
+    <canvas id="c"></canvas>
 
     <script type="module">
-        // Set random background from Unsplash (Gaming theme)
-        const bg = document.getElementById('bg-image');
-        bg.src = `https://source.unsplash.com/random/1280x720/?cyberpunk,space,forest,fire&sig=${Math.random()}`;
-
-        const peer = new Peer(Math.floor(1000 + Math.random() * 8999).toString());
-        let connection = null;
-        let myHP = 100, enemyPos = {x:0, y:0};
-
-        peer.on('open', id => document.getElementById('display-id').innerText = id);
-
-        window.initCamera = async () => {
-            await camera.start();
-            document.getElementById('setup').style.display = 'none';
-            document.getElementById('p2p').style.display = 'block';
-        };
-
-        peer.on('connection', conn => {
-            connection = conn;
-            setupGame();
+        const myId = Math.floor(1000 + Math.random() * 8999).toString();
+        const peer = new Peer(myId, { 
+            config: { 'iceServers': [{ url: 'stun:stun.l.google.com:19302' }] } 
         });
 
-        window.connectFighter = () => {
-            connection = peer.connect(document.getElementById('join-id').value);
-            setupGame();
+        let connection = null;
+        let myHP = 100, enemyPos = {x:-1000, y:-1000};
+
+        peer.on('open', id => document.getElementById('my-id-text').innerText = id);
+
+        // This function wakes up the camera and PeerJS at the same time
+        window.startEverything = async () => {
+            document.getElementById('start-box').style.display = 'none';
+            document.getElementById('connect-box').style.display = 'block';
+            
+            try {
+                await camera.start();
+            } catch (e) {
+                alert("Please Allow Camera Access in your Settings!");
+            }
         };
 
-        function setupGame() {
+        peer.on('connection', conn => { 
+            connection = conn; 
+            bindEvents(); 
+        });
+
+        window.connectFighters = () => {
+            const id = document.getElementById('target-id').value;
+            connection = peer.connect(id, { reliable: false });
+            bindEvents();
+        };
+
+        function bindEvents() {
             connection.on('open', () => {
-                document.getElementById('menu').style.display = 'none';
-                document.getElementById('hp-layer').style.display = 'flex';
-                connection.send({type: 'start'});
+                document.getElementById('menu-overlay').style.display = 'none';
+                document.getElementById('ui').style.display = 'flex';
             });
-            connection.on('data', data => {
-                if(data.type === 'start') {
-                    document.getElementById('menu').style.display = 'none';
-                    document.getElementById('hp-layer').style.display = 'flex';
-                }
-                if(data.type === 'pos') enemyPos = data.val;
-                if(data.type === 'hit') {
+            connection.on('data', d => {
+                if(d.t === 'p') enemyPos = d.v;
+                if(d.t === 'h') {
                     myHP -= 5;
                     document.getElementById('my-hp').style.width = myHP + "%";
-                    if(myHP <= 0) { alert("DEFEATED!"); location.reload(); }
+                    if(myHP <= 0) { alert("GAME OVER!"); location.reload(); }
                 }
             });
         }
 
-        const canvas = document.getElementById('output_canvas');
+        const canvas = document.getElementById('c');
         const ctx = canvas.getContext('2d');
 
-        function drawWarrior(x, y, color, isEnemy) {
-            ctx.save();
-            // Glow effect
-            ctx.shadowBlur = 20;
-            ctx.shadowColor = color;
-            
-            // Warrior Body
+        function drawHero(x, y, color, label) {
+            ctx.shadowBlur = 15; ctx.shadowColor = color;
             ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, 40, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Warrior Helmet Visor
+            ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI*2); ctx.fill();
+            // Character Visor
             ctx.fillStyle = "rgba(0,0,0,0.7)";
-            ctx.fillRect(x - 25, y - 10, 50, 15);
-
-            // Health/Name Tag
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = "white";
-            ctx.font = "bold 16px sans-serif";
-            ctx.fillText(isEnemy ? "ENEMY" : "YOU", x - 20, y - 55);
-            ctx.restore();
+            ctx.fillRect(x-25, y-8, 50, 15);
+            // Label
+            ctx.shadowBlur = 0; ctx.fillStyle = "#fff"; ctx.font = "bold 16px Arial";
+            ctx.textAlign = "center"; ctx.fillText(label, x, y - 55);
         }
 
         const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.onResults(results => {
-            ctx.clearRect(0,0,canvas.width, canvas.height);
+        
+        hands.onResults(r => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
             
-            // We draw the camera feed slightly transparent so the background shows through
+            // Background
+            ctx.fillStyle = "#000"; ctx.fillRect(0,0,canvas.width, canvas.height);
+
+            // Camera Feed (Translucent)
             ctx.save();
-            ctx.translate(canvas.width, 0);
-            ctx.scale(-1, 1);
-            ctx.globalAlpha = 0.4;
-            if(results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+            ctx.globalAlpha = 0.35;
+            if(r.image) ctx.drawImage(r.image, 0, 0, canvas.width, canvas.height);
             ctx.restore();
 
-            if (results.multiHandLandmarks && results.multiHandLandmarks[0]) {
-                const wrist = results.multiHandLandmarks[0][0];
-                const myX = (1 - wrist.x) * canvas.width;
-                const myY = wrist.y * canvas.height;
+            if (r.multiHandLandmarks && r.multiHandLandmarks[0]) {
+                const pt = r.multiHandLandmarks[0][0];
+                const x = (1 - pt.x) * canvas.width;
+                const y = pt.y * canvas.height;
                 
                 if(connection && connection.open) {
-                    connection.send({type: 'pos', val: {x: myX, y: myY}});
-                    let d = Math.sqrt((myX - enemyPos.x)**2 + (myY - enemyPos.y)**2);
-                    if(d < 70) connection.send({type: 'hit'});
+                    connection.send({t: 'p', v: {x: x, y: y}});
+                    let dist = Math.sqrt((x - enemyPos.x)**2 + (y - enemyPos.y)**2);
+                    if(dist < 75) connection.send({t: 'h'});
                 }
-                drawWarrior(myX, myY, "#00ffaa", false);
+                drawHero(x, y, "#0f8", "YOU");
             }
             
             if(connection && connection.open) {
-                drawWarrior(enemyPos.x, enemyPos.y, "#ff3300", true);
+                drawHero(enemyPos.x, enemyPos.y, "#f30", "ENEMY");
             }
         });
 
-        const camera = new Camera(document.getElementById('input_video'), {
-            onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
+        const camera = new Camera(document.getElementById('v'), {
+            onFrame: async () => { await hands.send({image: document.getElementById('v')}); },
             width: 640, height: 480
         });
     </script>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hand Fight P2P | Fixed Sync</title>
+    
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <style>
+        body { margin: 0; background: #000; color: #0f8; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        #menu { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 100; background: rgba(15, 15, 15, 0.98); padding: 30px; 
+            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 80%; max-width: 300px;
+        }
+        .id-display { font-size: 42px; font-weight: bold; color: #fff; margin: 15px 0; background: #222; padding: 10px; border-radius: 10px; }
+        .hp-ui { position: absolute; top: 20px; width: 100%; display: none; justify-content: space-around; z-index: 10; }
+        .bar { width: 42%; height: 22px; border: 2px solid #fff; border-radius: 11px; overflow: hidden; background: #333; }
+        .fill { height: 100%; width: 100%; transition: width 0.1s linear; }
+        #my-hp { background: #0f8; }
+        #enemy-hp { background: #f30; }
+        input { width: 90%; padding: 15px; margin-bottom: 15px; background: #111; color: #0f8; border: 1px solid #0f8; font-size: 22px; text-align: center; border-radius: 10px; }
+        button { background: #0f8; color: #000; border: none; padding: 18px; font-weight: bold; border-radius: 10px; width: 100%; font-size: 20px; }
+        canvas { width: 100vw; height: 100vh; object-fit: cover; }
+    </style>
+</head>
+<body>
+
+    <div id="menu">
+        <h2 style="margin:0">HAND FIGHT</h2>
+        <div style="font-size: 12px; color: #888; margin-top: 10px;">YOUR ID:</div>
+        <div id="display-id" class="id-display">----</div>
+        <input type="number" id="join-id" placeholder="OPPONENT ID">
+        <button id="connect-btn" onclick="connectFighter()">START FIGHT</button>
+    </div>
+
+    <div id="hp-layer" class="hp-ui">
+        <div class="bar"><div id="my-hp" class="fill"></div></div>
+        <div class="bar"><div id="enemy-hp" class="fill"></div></div>
+    </div>
+
+    <video id="input_video" style="display:none" playsinline></video>
+    <canvas id="output_canvas"></canvas>
+
+    <script type="module">
+        const myShortId = Math.floor(1000 + Math.random() * 8999).toString();
+        const peer = new Peer(myShortId);
+        let connection = null;
+        let myHP = 100, enemyPos = {x:0, y:0};
+
+        peer.on('open', id => document.getElementById('display-id').innerText = id);
+
+        // RECEIVER LOGIC
+        peer.on('connection', conn => {
+            connection = conn;
+            handleData();
+            // Tell the sender we are ready
+            connection.on('open', () => {
+                connection.send({ type: 'START_GAME' });
+                startGameUI();
+            });
+        });
+
+        // SENDER LOGIC
+        window.connectFighter = () => {
+            const code = document.getElementById('join-id').value;
+            if(code.length !== 4) return alert("Need 4 digits!");
+            document.getElementById('connect-btn').innerText = "CONNECTING...";
+            
+            connection = peer.connect(code);
+            handleData();
+            connection.on('open', () => {
+                connection.send({ type: 'START_GAME' });
+                startGameUI();
+            });
+        };
+
+        function handleData() {
+            connection.on('data', data => {
+                if(data.type === 'START_GAME') startGameUI();
+                if(data.type === 'pos') enemyPos = data.val;
+                if(data.type === 'hit') {
+                    myHP -= 5;
+                    document.getElementById('my-hp').style.width = myHP + "%";
+                    if(myHP <= 0) { alert("K.O.!"); location.reload(); }
+                }
+            });
+            
+            connection.on('close', () => location.reload());
+        }
+
+        function startGameUI() {
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('hp-layer').style.display = 'flex';
+        }
+
+        // CAMERA & HANDS
+        const canvas = document.getElementById('output_canvas');
+        const ctx = canvas.getContext('2d');
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        
+        hands.onResults(results => {
+            ctx.save();
+            ctx.clearRect(0,0,canvas.width, canvas.height);
+            ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+            ctx.globalAlpha = 1;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks[0]) {
+                const wrist = results.multiHandLandmarks[0][0];
+                const myPos = {x: (1-wrist.x)*canvas.width, y: wrist.y*canvas.height};
+                
+                if(connection && connection.open) {
+                    connection.send({type: 'pos', val: myPos});
+                    let d = Math.sqrt((myPos.x-enemyPos.x)**2 + (myPos.y-enemyPos.y)**2);
+                    if(d < 80) connection.send({type: 'hit'});
+                }
+                ctx.fillStyle = '#0f8'; ctx.beginPath(); ctx.arc(myPos.x, myPos.y, 25, 0, Math.PI*2); ctx.fill();
+            }
+            if(connection && connection.open) {
+                ctx.fillStyle = '#f30'; ctx.beginPath(); ctx.arc(enemyPos.x, enemyPos.y, 25, 0, Math.PI*2); ctx.fill();
+            }
+            ctx.restore();
+        });
+
+        const camera = new Camera(document.getElementById('input_video'), {
+            onFrame: async () => { await hands.send({image: document.getElementById('input_video')}); },
+            width: 640, height: 480
+        });
+        camera.start();
+    </script>
+</body>
+</html>

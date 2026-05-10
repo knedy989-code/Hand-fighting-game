@@ -3,29 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Fight | AI Canvas Fix</title>
+    <title>Hand Fight | Tactical Draw</title>
     
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; color: white; touch-action: none;}
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; touch-action: none;}
         
         #video-feed { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; }
         #game-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 2; pointer-events: none; }
-
-        #status-text { position: absolute; top: 10px; left: 0; width: 100%; text-align: center; z-index: 200; font-weight: bold; font-size: 18px; color: yellow; text-shadow: 2px 2px 4px #000; pointer-events: none;}
-
-        #menu { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 100; background: rgba(0,0,0,0.8); padding: 30px; 
-            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 80%; max-width: 320px;
+        
+        #ui-container {
+            position: absolute; bottom: 20px; width: 100%; display: none; 
+            flex-direction: row; align-items: flex-end; justify-content: space-around; z-index: 50;
         }
 
-        .hp-layer { position: absolute; top: 40px; width: 100%; display: none; justify-content: space-around; z-index: 50; }
-        .hp-bar { width: 40%; height: 25px; border: 2px solid #fff; border-radius: 12px; background: #333; overflow: hidden; }
-        .hp-fill { height: 100%; width: 100%; transition: width 0.1s; }
+        .hp-bar-container { width: 35%; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+        .hp-bar { width: 100%; height: 30px; border: 3px solid #fff; background: #222; position: relative; border-radius: 5px; }
+        .hp-fill { height: 100%; width: 100%; transition: width 0.2s; }
+        
+        .round-dots { display: flex; gap: 8px; }
+        .dot { width: 15px; height: 15px; border-radius: 50%; border: 2px solid #fff; }
+        .dot.won { background: #0f8; border-color: #0f8; }
+        .dot.enemy-won { background: #f30; border-color: #f30; }
+
+        #timer-box {
+            background: #000; border: 4px solid #f80; padding: 10px 15px;
+            font-size: 38px; font-weight: bold; color: #f80; min-width: 60px; text-align: center;
+        }
+
+        #menu { 
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 100; background: rgba(0,0,0,0.9); padding: 30px; 
+            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 80%; max-width: 320px;
+        }
 
         button { background: #0f8; color: #000; border: none; padding: 18px; font-weight: bold; border-radius: 10px; width: 100%; font-size: 20px; margin-top: 10px; }
         input { width: 90%; padding: 15px; background: #111; color: #0f8; border: 1px solid #0f8; font-size: 24px; text-align: center; border-radius: 10px; }
@@ -33,134 +46,213 @@
 </head>
 <body>
 
-    <div id="status-text">STATUS: WAITING FOR START</div>
-
     <video id="video-feed" playsinline autoplay muted></video>
     <canvas id="game-canvas"></canvas>
 
     <div id="menu">
-        <h2 style="margin:0; color:#0f8;">HAND FIGHTER</h2>
+        <h2 style="margin:0; color:#0f8;">NEON STRIKE</h2>
         <div id="step1">
-            <button onclick="forceStartCamera()">1. START CAMERA</button>
+            <button onclick="forceStartCamera()">START CAMERA</button>
         </div>
         <div id="step2" style="display:none">
-            <p>YOUR ID: <b id="my-id" style="font-size: 30px;">...</b></p>
+            <p>ID: <b id="my-id" style="font-size: 30px;">...</b></p>
             <input type="number" id="join-id" placeholder="ENEMY ID">
-            <button onclick="startConnection()">2. FIGHT!</button>
+            <button onclick="startConnection()">BATTLE!</button>
         </div>
     </div>
 
-    <div class="hp-layer" id="hp-ui">
-        <div class="hp-bar"><div id="my-hp" class="hp-fill" style="background:#0f8"></div></div>
-        <div class="hp-bar"><div id="enemy-hp" class="hp-fill" style="background:#f30"></div></div>
+    <div id="ui-container">
+        <div class="hp-bar-container">
+            <div class="round-dots" id="my-dots">
+                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+            </div>
+            <div class="hp-bar"><div id="my-hp" class="hp-fill" style="background:#0f8"></div></div>
+        </div>
+        <div id="timer-box">99</div>
+        <div class="hp-bar-container">
+            <div class="round-dots" id="enemy-dots">
+                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+            </div>
+            <div class="hp-bar"><div id="enemy-hp" class="hp-fill" style="background:#f30"></div></div>
+        </div>
     </div>
 
     <script type="module">
-        const status = document.getElementById('status-text');
         const videoElement = document.getElementById('video-feed');
+        const timerDisplay = document.getElementById('timer-box');
         
+        let timeLeft = 99;
+        let timerInterval = null;
+        let myScore = 0, enemyScore = 0;
+        let myHP = 100, enemyHP = 100;
+        let isRoundActive = false;
+
         window.forceStartCamera = async () => {
-            status.innerText = "STATUS: ASKING FOR CAMERA...";
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
                 videoElement.srcObject = stream;
-                
                 document.getElementById('step1').style.display = 'none';
                 document.getElementById('step2').style.display = 'block';
-                status.innerText = "STATUS: LOADING AI...";
-                
-                // Start AI once camera is confirmed
                 startAI();
-            } catch (error) {
-                status.innerText = "ERROR: IPAD BLOCKED CAMERA!";
-            }
+            } catch (e) { alert("Camera Error"); }
         };
 
         const myShortId = Math.floor(1000 + Math.random() * 8999).toString();
-        const peer = new Peer(myShortId, { config: { 'iceServers': [{ url: 'stun:stun.l.google.com:19302' }] } });
+        const peer = new Peer(myShortId);
         let connection = null;
-        let myHP = 100, enemyPos = {x:-500, y:-500};
+        let enemyData = {pos: [], isBlocking: false};
+        let amIBlocking = false;
 
         peer.on('open', id => document.getElementById('my-id').innerText = id);
-        peer.on('connection', conn => { connection = conn; activateGame(); });
-        window.startConnection = () => { connection = peer.connect(document.getElementById('join-id').value); activateGame(); };
+        peer.on('connection', conn => { connection = conn; setupEvents(); });
+        window.startConnection = () => { connection = peer.connect(document.getElementById('join-id').value); setupEvents(); };
 
-        function activateGame() {
+        function setupEvents() {
             connection.on('open', () => {
                 document.getElementById('menu').style.display = 'none';
-                document.getElementById('hp-ui').style.display = 'flex';
-                status.innerText = ""; 
+                document.getElementById('ui-container').style.display = 'flex';
+                resetRound();
             });
             connection.on('data', data => {
-                if(data.type === 'pos') enemyPos = data.val;
-                if(data.type === 'hit') {
+                if(data.type === 'state') {
+                    enemyData = data;
+                    enemyHP = data.hp;
+                    document.getElementById('enemy-hp').style.width = enemyHP + "%";
+                }
+                if(data.type === 'hit' && !amIBlocking && isRoundActive) {
                     myHP -= 5;
                     document.getElementById('my-hp').style.width = myHP + "%";
-                    if(myHP <= 0) { alert("YOU WERE DEFEATED!"); location.reload(); }
+                    if(myHP <= 0) awardPoint('enemy');
                 }
+                if(data.type === 'roundWin') awardPoint('enemy', true);
+                if(data.type === 'draw') triggerDraw();
             });
+        }
+
+        function resetRound() {
+            myHP = 100; enemyHP = 100; timeLeft = 99;
+            document.getElementById('my-hp').style.width = "100%";
+            document.getElementById('enemy-hp').style.width = "100%";
+            isRoundActive = true;
+            timerDisplay.style.color = "#f80";
+            startTimer();
+        }
+
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if(!isRoundActive) return;
+                timeLeft--;
+                timerDisplay.innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    if(myHP > enemyHP) awardPoint('me');
+                    else if(enemyHP > myHP) awardPoint('enemy');
+                    else {
+                        connection.send({type: 'draw'});
+                        triggerDraw();
+                    }
+                }
+            }, 1000);
+        }
+
+        function triggerDraw() {
+            if(!isRoundActive) return;
+            isRoundActive = false;
+            clearInterval(timerInterval);
+            timerDisplay.innerText = "DRAW";
+            timerDisplay.style.color = "#fff";
+            setTimeout(resetRound, 2000);
+        }
+
+        function awardPoint(who, remoteCall = false) {
+            if(!isRoundActive) return;
+            isRoundActive = false;
+            clearInterval(timerInterval);
+
+            if(who === 'me') {
+                myScore++;
+                updateDots('my-dots', myScore, 'won');
+                if(!remoteCall) connection.send({type: 'roundWin'});
+            } else {
+                enemyScore++;
+                updateDots('enemy-dots', enemyScore, 'enemy-won');
+            }
+
+            if(myScore >= 3 || enemyScore >= 3) {
+                setTimeout(() => {
+                    alert(myScore >= 3 ? "MATCH OVER: YOU WIN!" : "MATCH OVER: ENEMY WINS!");
+                    location.reload();
+                }, 500);
+            } else {
+                setTimeout(resetRound, 2000);
+            }
+        }
+
+        function updateDots(id, score, className) {
+            const dots = document.getElementById(id).children;
+            for(let i=0; i<score && i<3; i++) dots[i].classList.add(className);
         }
 
         const canvas = document.getElementById('game-canvas');
         const ctx = canvas.getContext('2d');
 
-        function drawCharacter(x, y, color, label) {
-            ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI*2); ctx.fill();
+        function drawWarrior(x, y, color, label, isBlocking) {
+            ctx.shadowBlur = isBlocking ? 40 : 15;
+            ctx.shadowColor = isBlocking ? "#0af" : color;
+            ctx.fillStyle = isBlocking ? "#0af" : color;
+            ctx.beginPath(); ctx.arc(x, y, 45, 0, Math.PI*2); ctx.fill();
             ctx.fillStyle = "black"; ctx.fillRect(x-25, y-10, 50, 15);
-            ctx.fillStyle = "white"; ctx.font = "bold 20px Arial";
-            ctx.textAlign = "center"; ctx.fillText(label, x, y - 55);
+            ctx.fillStyle = "white"; ctx.font = "bold 18px Arial";
+            ctx.textAlign = "center"; ctx.fillText(label, x, y - 60);
         }
 
         function startAI() {
             const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            
-            hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 0,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
+            hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5 });
             
             hands.onResults(results => {
-                status.innerText = "STATUS: AI ACTIVE! SHOW HAND.";
-                
-                // Force canvas to match screen, not video (crucial iOS fix)
                 canvas.width = window.innerWidth;
                 canvas.height = window.innerHeight;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                    status.innerText = ""; // Hide status when working perfectly
-                    const wrist = results.multiHandLandmarks[0][0];
-                    const myX = wrist.x * canvas.width;
-                    const myY = wrist.y * canvas.height;
-                    
-                    if(connection && connection.open) {
-                        connection.send({type: 'pos', val: {x: myX, y: myY}});
-                        let dist = Math.sqrt((myX - enemyPos.x)**2 + (myY - enemyPos.y)**2);
-                        if(dist < 70) connection.send({type: 'hit'});
-                    }
-                    drawCharacter(myX, myY, "#0f8", "YOU");
-                }
                 
+                let myCurrentPos = [];
+                amIBlocking = false;
+
+                if (results.multiHandLandmarks) {
+                    if (results.multiHandLandmarks.length === 2) {
+                        const h1 = results.multiHandLandmarks[0][0];
+                        const h2 = results.multiHandLandmarks[1][0];
+                        if (Math.sqrt((h1.x-h2.x)**2 + (h1.y-h2.y)**2) < 0.15) amIBlocking = true;
+                    }
+
+                    results.multiHandLandmarks.forEach((landmark) => {
+                        const x = landmark[0].x * canvas.width;
+                        const y = landmark[0].y * canvas.height;
+                        myCurrentPos.push({x, y});
+                        drawWarrior(x, y, "#0f8", amIBlocking ? "BLOCK" : "YOU", amIBlocking);
+
+                        if(connection && connection.open && !amIBlocking && isRoundActive) {
+                            enemyData.pos.forEach(ep => {
+                                if(Math.sqrt((x-ep.x)**2 + (y-ep.y)**2) < 80 && !enemyData.isBlocking) {
+                                    connection.send({type: 'hit'});
+                                    if(enemyHP - 5 <= 0) awardPoint('me');
+                                }
+                            });
+                        }
+                    });
+                }
+
                 if(connection && connection.open) {
-                    drawCharacter(enemyPos.x, enemyPos.y, "#f30", "ENEMY");
+                    connection.send({type: 'state', pos: myCurrentPos, isBlocking: amIBlocking, hp: myHP});
+                    enemyData.pos.forEach(ep => drawWarrior(ep.x, ep.y, "#f30", enemyData.isBlocking ? "BLOCK" : "ENEMY", enemyData.isBlocking));
                 }
             });
 
-            async function feedVideo() {
-                try {
-                    // Make sure video is actually playing and has data
-                    if (videoElement.readyState >= 2) {
-                        await hands.send({image: videoElement});
-                    }
-                } catch (e) {
-                    console.log("Waiting for AI to catch up...");
-                }
-                requestAnimationFrame(feedVideo);
+            async function loop() {
+                if (videoElement.readyState >= 2) await hands.send({image: videoElement});
+                requestAnimationFrame(loop);
             }
-            feedVideo();
+            loop();
         }
     </script>
 </body>

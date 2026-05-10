@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Strike | Master Edition</title>
+    <title>Neon Strike | Private Rooms</title>
     
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -14,148 +14,169 @@
         #video-feed { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; opacity: 0.4; }
         #game-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 2; pointer-events: none; }
         
-        #menu, #pause-overlay, #leaderboard-overlay, #profile-gate { 
+        #menu, #profile-gate, #lobby-gate { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
             z-index: 100; background: rgba(0,0,0,0.95); padding: 25px; 
             border: 2px solid #0f8; border-radius: 15px; text-align: center; width: 90%; max-width: 400px;
         }
 
-        #pause-overlay, #leaderboard-overlay { display: none; border-color: #f80; }
-
         .hub-btn { background: #0f8; color: #000; padding: 15px; width: 100%; border: none; font-weight: bold; font-size: 18px; margin-top: 10px; border-radius: 8px; cursor: pointer; }
-        .hub-btn.small { padding: 8px; font-size: 14px; background: #444; color: white; }
+        input { width: 85%; padding: 12px; background: #111; color: #0f8; border: 1px solid #0f8; text-align: center; border-radius: 5px; margin-bottom: 10px; font-weight: bold; }
         
-        input { width: 85%; padding: 12px; background: #111; color: #0f8; border: 1px solid #0f8; text-align: center; border-radius: 5px; margin-bottom: 10px;}
-        
-        #ingame-ui { position: absolute; top: 10px; width: 100%; display: none; justify-content: center; align-items: center; gap: 20px; z-index: 60; }
-        .lb-row { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 8px; }
+        .p-item { display: flex; justify-content: space-between; align-items: center; background: #222; margin: 4px 0; padding: 8px; border-radius: 4px; font-size: 14px; }
+        .kick-btn { background: #f30; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+        #ingame-ui { position: absolute; top: 10px; width: 100%; display: none; justify-content: center; z-index: 60; }
     </style>
 </head>
 <body>
 
     <div id="profile-gate">
         <h1 style="color:#0f8;">NEON STRIKE</h1>
-        <input type="text" id="username-input" placeholder="CREATE YOUR NAME..." maxlength="12">
-        <button class="hub-btn" onclick="saveProfile()">SAVE & PLAY</button>
+        <input type="text" id="username-input" placeholder="YOUR NAME" maxlength="12">
+        <button class="hub-btn" onclick="saveProfile()">CONTINUE</button>
+    </div>
+
+    <div id="menu" style="display:none">
+        <h2 style="color:#0f8;" id="welcome-msg">WELCOME</h2>
+        <button class="hub-btn" onclick="initCam()">INITIALIZE CAMERA</button>
+        <div id="hub-options" style="display:none; margin-top:20px;">
+            <input type="text" id="room-code-input" placeholder="ENTER ROOM CODE (e.g. 1234)">
+            <button class="hub-btn" style="background:#08f; color:white;" onclick="handleRoomAction('create')">CREATE ROOM</button>
+            <button class="hub-btn" style="background:#444; color:white;" onclick="handleRoomAction('join')">JOIN ROOM</button>
+        </div>
+    </div>
+
+    <div id="lobby-gate" style="display:none">
+        <h3 id="lobby-title" style="color:#0f8; margin:0;">LOBBY</h3>
+        <div id="player-list" style="margin:15px 0; text-align:left;"></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+            <button onclick="switchTeam(1)" style="background:#08f; width:48%; padding:10px; border:none; color:white;">TEAM BLUE</button>
+            <button onclick="switchTeam(2)" style="background:#f30; width:48%; padding:10px; border:none; color:white;">TEAM RED</button>
+        </div>
+        <button id="start-btn" class="hub-btn" onclick="startGame()">START MATCH</button>
     </div>
 
     <div id="ingame-ui">
-        <div id="timer" style="font-size:30px; background:rgba(0,0,0,0.6); padding:5px 15px; border-radius:8px; color:#f80;">99</div>
-        <button onclick="togglePauseRequest()" style="padding:10px; border-radius: 5px; border:none; background: white; font-weight:bold;">PAUSE</button>
-    </div>
-
-    <div id="leaderboard-overlay">
-        <h2 style="color:#0f8;">LEADERBOARD</h2>
-        <div id="lb-content"></div>
-        <button class="hub-btn" onclick="document.getElementById('leaderboard-overlay').style.display='none'">CLOSE</button>
+        <div id="timer" style="font-size:24px; background:rgba(0,0,0,0.6); padding:5px 20px; border-radius:8px; color:#f80;">READY</div>
     </div>
 
     <video id="video-feed" playsinline autoplay muted></video>
     <canvas id="game-canvas"></canvas>
 
-    <div id="menu" style="display:none">
-        <p><span id="display-name" style="color:#0f8; font-weight:bold;">Player</span> | Wins: <b id="win-display">0</b></p>
-        
-        <div id="cam-gate"><button class="hub-btn" onclick="initCam()">1. START CAMERA</button></div>
-        
-        <div id="hub-gate" style="display:none">
-            <button class="hub-btn" onclick="openMode('1v1')">1v1 DUEL (WITH CODE)</button>
-            <button class="hub-btn" style="background:#444; color:white;" onclick="openMode('lobby')">MULTIPLAYER LOBBY</button>
-            <button class="hub-btn small" onclick="showLeaderboard()">LEADERBOARD</button>
-            <p style="font-size:12px;">MY CODE: <b id="my-id" style="color:#0f8">----</b></p>
-        </div>
-
-        <div id="lobby-gate" style="display:none">
-            <h3 id="mode-header">LOBBY</h3>
-            <input type="number" id="join-id" placeholder="ENTER FRIEND'S CODE">
-            <button onclick="connectPeer()" style="padding:10px; background:#08f; border:none; color:white; width:80%; font-weight:bold; border-radius:5px;">CONNECT</button>
-            <div id="team-ui" style="display:flex; justify-content:space-between; margin:15px 0;">
-                <button onclick="switchTeam(1)" style="background:#08f; width:45%; padding:10px; border:none; border-radius:5px;">BLUE</button>
-                <button onclick="switchTeam(2)" style="background:#f30; width:45%; padding:10px; border:none; border-radius:5px;">RED</button>
-            </div>
-            <button id="start-btn" class="hub-btn" onclick="startGame()">START MATCH</button>
-        </div>
-    </div>
-
     <script type="module">
         const video = document.getElementById('video-feed');
-        let myTeam = 1, myHP = 100, mode = 'lobby', myName = "";
-        let players = {}, conns = {}, isGaming = false, isHost = true;
-        let myWins = parseInt(localStorage.getItem('neonWins')) || 0;
-
-        window.onload = () => {
-            const savedName = localStorage.getItem('neonName');
-            if(savedName) {
-                myName = savedName;
-                document.getElementById('profile-gate').style.display = 'none';
-                document.getElementById('menu').style.display = 'block';
-                document.getElementById('display-name').innerText = myName;
-                document.getElementById('win-display').innerText = myWins;
-            }
-        };
+        let myTeam = 1, myHP = 100, myName = "", roomCode = "";
+        let players = {}, conns = {}, isGaming = false, isHost = false;
+        let peer;
 
         window.saveProfile = () => {
-            const input = document.getElementById('username-input').value.trim();
-            if(input.length < 2) return alert("Name too short!");
-            myName = input;
+            const val = document.getElementById('username-input').value.trim();
+            if(val.length < 2) return alert("Name too short!");
+            myName = val;
             localStorage.setItem('neonName', myName);
             document.getElementById('profile-gate').style.display = 'none';
             document.getElementById('menu').style.display = 'block';
-            document.getElementById('display-name').innerText = myName;
+            document.getElementById('welcome-msg').innerText = "READY, " + myName;
         };
 
         window.initCam = async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-            video.srcObject = stream;
-            document.getElementById('cam-gate').style.display = 'none';
-            document.getElementById('hub-gate').style.display = 'block';
-            startAI();
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                video.srcObject = stream;
+                document.getElementById('hub-options').style.display = 'block';
+                startAI();
+            } catch(e) { alert("Camera access required!"); }
         };
 
-        const myId = Math.floor(1000 + Math.random() * 8999).toString();
-        const peer = new Peer(myId);
-        peer.on('open', id => document.getElementById('my-id').innerText = id);
-        peer.on('connection', c => { isHost = true; handleConn(c); });
+        window.handleRoomAction = (action) => {
+            const code = document.getElementById('room-code-input').value.trim();
+            if(code.length < 3) return alert("Code must be at least 3 chars!");
+            roomCode = code;
 
-        window.openMode = (m) => {
-            mode = m; 
-            document.getElementById('hub-gate').style.display = 'none';
-            document.getElementById('lobby-gate').style.display = 'block';
-            document.getElementById('mode-header').innerText = m === '1v1' ? '1v1 DUEL' : 'MULTIPLAYER LOBBY';
-            document.getElementById('team-ui').style.display = m === '1v1' ? 'none' : 'flex';
+            // Initialize Peer with the specific room code or a derivative of it
+            // Peer IDs must be unique globally, so for "Create", we use the code. 
+            // Note: In a real app, you'd use a server to mediate, but here we use the code as ID.
+            if(action === 'create') {
+                isHost = true;
+                initPeer(roomCode);
+            } else {
+                isHost = false;
+                initPeer(null); // Joiners get a random ID
+                setTimeout(() => connectToHost(roomCode), 500);
+            }
         };
 
-        window.connectPeer = () => {
-            isHost = false; 
-            const targetId = document.getElementById('join-id').value;
-            if(targetId) handleConn(peer.connect(targetId));
-        };
+        function initPeer(id) {
+            peer = new Peer(id);
+            peer.on('open', (pid) => {
+                document.getElementById('menu').style.display = 'none';
+                document.getElementById('lobby-gate').style.display = 'block';
+                document.getElementById('lobby-title').innerText = "ROOM: " + roomCode;
+                updateLobbyUI();
+            });
+            peer.on('connection', handleConn);
+            peer.on('error', (err) => {
+                if(err.type === 'unavailable-id') alert("Room code already in use! Try Join or a new code.");
+            });
+        }
+
+        function connectToHost(hostId) {
+            handleConn(peer.connect(hostId));
+        }
 
         function handleConn(c) {
             c.on('open', () => {
                 conns[c.peer] = c;
-                if(mode === '1v1') { myTeam = 1; broadcast({type:'force-team', team: 2}); }
                 c.on('data', data => {
-                    if(data.type === 'sync') { players[c.peer] = data; checkWinCondition(); }
-                    if(data.type === 'force-team') { myTeam = data.team; }
-                    if(data.type === 'hit' && data.target === myId) { myHP -= 5; if(myHP < 0) myHP = 0; }
+                    if(data.type === 'sync') { players[c.peer] = data; updateLobbyUI(); }
+                    if(data.type === 'hit' && data.target === peer.id) { myHP -= 5; if(myHP <= 0) myHP = 0; }
+                    if(data.type === 'kick') { alert("Kicked from room."); location.reload(); }
                     if(data.type === 'start') {
                         isGaming = true;
-                        document.getElementById('menu').style.display = 'none';
+                        document.getElementById('lobby-gate').style.display = 'none';
                         document.getElementById('ingame-ui').style.display = 'flex';
                     }
                 });
             });
         }
 
+        window.switchTeam = (t) => { myTeam = t; sync(); updateLobbyUI(); };
+        window.kickPlayer = (pid) => { if(conns[pid]) { conns[pid].send({type: 'kick'}); delete players[pid]; updateLobbyUI(); } };
+
+        function updateLobbyUI() {
+            const list = document.getElementById('player-list');
+            const sBtn = document.getElementById('start-btn');
+            list.innerHTML = "";
+            
+            const addRow = (name, team, pid, isMe) => {
+                const div = document.createElement('div');
+                div.className = 'p-item';
+                div.style.borderLeft = team === 1 ? "5px solid #08f" : "5px solid #f30";
+                div.innerHTML = `<span>${name} ${isMe ? '(YOU)' : ''}</span>`;
+                if(isHost && !isMe) {
+                    const kb = document.createElement('button');
+                    kb.className = 'kick-btn'; kb.innerText = "KICK";
+                    kb.onclick = () => kickPlayer(pid);
+                    div.appendChild(kb);
+                }
+                list.appendChild(div);
+            };
+
+            addRow(myName, myTeam, peer.id, true);
+            Object.keys(players).forEach(id => addRow(players[id].name, players[id].team, id, false));
+            
+            sBtn.innerText = isHost ? "START MATCH" : "WAITING FOR HOST...";
+            sBtn.disabled = !isHost;
+        }
+
         window.startGame = () => {
             isGaming = true;
-            document.getElementById('menu').style.display = 'none';
+            document.getElementById('lobby-gate').style.display = 'none';
             document.getElementById('ingame-ui').style.display = 'flex';
             broadcast({type: 'start'});
         };
 
-        const sync = (pos = []) => broadcast({type: 'sync', name: myName, team: myTeam, hp: myHP, pos: pos, wins: myWins});
+        const sync = (pos = []) => broadcast({type: 'sync', name: myName, team: myTeam, hp: myHP, pos: pos});
         function broadcast(d) { Object.values(conns).forEach(c => { if(c.open) c.send(d); }); }
 
         const canvas = document.getElementById('game-canvas'), ctx = canvas.getContext('2d');
@@ -184,7 +205,7 @@
                         }
                     });
                 }
-                if(isGaming || Object.keys(conns).length > 0) {
+                if(isGaming || (peer && peer.id)) {
                     Object.values(players).forEach(p => {
                         if(p.hp > 0) p.pos.forEach(pos => drawChar(pos.x, pos.y, p.team, p.name, p.hp));
                     });
@@ -198,25 +219,10 @@
         function drawChar(x, y, team, name, hp) {
             const c = team === 1 ? "#08f" : "#f30";
             ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "white"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center"; ctx.fillText(name, x, y-60);
+            ctx.fillStyle = "white"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
+            ctx.fillText(name, x, y-60);
             ctx.fillStyle = "#333"; ctx.fillRect(x-30, y-55, 60, 6);
             ctx.fillStyle = c; ctx.fillRect(x-30, y-55, 60 * (hp/100), 6);
-        }
-
-        function checkWinCondition() {
-            if(!isGaming) return;
-            const teamsAlive = new Set();
-            if(myHP > 0) teamsAlive.add(myTeam);
-            Object.values(players).forEach(p => { if(p.hp > 0) teamsAlive.add(p.team); });
-            if(teamsAlive.size === 1) {
-                const winnerTeam = Array.from(teamsAlive)[0];
-                isGaming = false;
-                if(winnerTeam === myTeam) {
-                    myWins++; localStorage.setItem('neonWins', myWins);
-                    alert("VICTORY!");
-                } else { alert("DEFEAT!"); }
-                location.reload();
-            }
         }
     </script>
 </body>

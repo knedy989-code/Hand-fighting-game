@@ -3,256 +3,207 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Fight | Tactical Draw</title>
+    <title>Neon Strike | Sound & Identity</title>
     
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <style>
-        body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; touch-action: none;}
-        
-        #video-feed { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; }
+        body { margin: 0; background: #0a0a0a; overflow: hidden; font-family: 'Courier New', monospace; color: white; touch-action: none;}
+        #video-feed { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; opacity: 0.4; }
         #game-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 2; pointer-events: none; }
         
-        #ui-container {
-            position: absolute; bottom: 20px; width: 100%; display: none; 
-            flex-direction: row; align-items: flex-end; justify-content: space-around; z-index: 50;
+        #menu, #profile-gate { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 100; background: rgba(0,0,0,0.95); padding: 25px; 
+            border: 2px solid #0f8; border-radius: 15px; text-align: center; width: 90%; max-width: 400px;
         }
 
-        .hp-bar-container { width: 35%; display: flex; flex-direction: column; align-items: center; gap: 5px; }
-        .hp-bar { width: 100%; height: 30px; border: 3px solid #fff; background: #222; position: relative; border-radius: 5px; }
-        .hp-fill { height: 100%; width: 100%; transition: width 0.2s; }
+        .hub-btn { background: #0f8; color: #000; padding: 15px; width: 100%; border: none; font-weight: bold; font-size: 18px; margin-top: 10px; border-radius: 8px; cursor: pointer; }
+        input { width: 85%; padding: 12px; background: #111; color: #0f8; border: 1px solid #0f8; text-align: center; border-radius: 5px; margin-bottom: 10px;}
         
-        .round-dots { display: flex; gap: 8px; }
-        .dot { width: 15px; height: 15px; border-radius: 50%; border: 2px solid #fff; }
-        .dot.won { background: #0f8; border-color: #0f8; }
-        .dot.enemy-won { background: #f30; border-color: #f30; }
-
-        #timer-box {
-            background: #000; border: 4px solid #f80; padding: 10px 15px;
-            font-size: 38px; font-weight: bold; color: #f80; min-width: 60px; text-align: center;
-        }
-
-        #menu { 
-            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 100; background: rgba(0,0,0,0.9); padding: 30px; 
-            border: 3px solid #0f8; border-radius: 20px; text-align: center; width: 80%; max-width: 320px;
-        }
-
-        button { background: #0f8; color: #000; border: none; padding: 18px; font-weight: bold; border-radius: 10px; width: 100%; font-size: 20px; margin-top: 10px; }
-        input { width: 90%; padding: 15px; background: #111; color: #0f8; border: 1px solid #0f8; font-size: 24px; text-align: center; border-radius: 10px; }
+        #ingame-ui { position: absolute; top: 10px; width: 100%; display: none; justify-content: center; align-items: center; z-index: 60; }
+        #timer { font-size: 30px; background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 8px; color: #f80; }
     </style>
 </head>
 <body>
 
+    <audio id="bg-music" loop>
+        <source src="REPLACE_WITH_YOUR_MUSIC_FILE_URL" type="audio/mpeg">
+    </audio>
+
+    <div id="profile-gate">
+        <h1 style="color:#0f8;">SET IDENTITY</h1>
+        <input type="text" id="username-input" placeholder="DISPLAY NAME..." maxlength="12">
+        <button class="hub-btn" onclick="saveProfile()">START ENGINE</button>
+    </div>
+
+    <div id="ingame-ui">
+        <div id="timer">99</div>
+    </div>
+
     <video id="video-feed" playsinline autoplay muted></video>
     <canvas id="game-canvas"></canvas>
 
-    <div id="menu">
-        <h2 style="margin:0; color:#0f8;">NEON STRIKE</h2>
-        <div id="step1">
-            <button onclick="forceStartCamera()">START CAMERA</button>
-        </div>
-        <div id="step2" style="display:none">
-            <p>ID: <b id="my-id" style="font-size: 30px;">...</b></p>
-            <input type="number" id="join-id" placeholder="ENEMY ID">
-            <button onclick="startConnection()">BATTLE!</button>
-        </div>
-    </div>
-
-    <div id="ui-container">
-        <div class="hp-bar-container">
-            <div class="round-dots" id="my-dots">
-                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div id="menu" style="display:none">
+        <h1 style="color:#0f8; margin:0;">NEON STRIKE</h1>
+        <p><span id="display-name" style="color:#0f8;">Player</span> | Wins: <b id="win-count">0</b></p>
+        
+        <div id="hub-gate">
+            <button class="hub-btn" onclick="initCam()">INITIALIZE CAMERA</button>
+            <div id="lobby-controls" style="display:none; margin-top:15px;">
+                <input type="number" id="join-id" placeholder="ENTER PLAYER ID">
+                <button onclick="connectPeer()" style="padding:10px; background:#08f; border:none; color:white; width:100%; border-radius:5px;">CONNECT</button>
+                <div style="display:flex; justify-content:space-between; margin-top:10px;">
+                    <button onclick="switchTeam(1)" style="background:#08f; width:48%; padding:10px; border:none;">TEAM BLUE</button>
+                    <button onclick="switchTeam(2)" style="background:#f30; width:48%; padding:10px; border:none;">TEAM RED</button>
+                </div>
+                <button id="start-btn" class="hub-btn" onclick="startGame()">START MATCH</button>
             </div>
-            <div class="hp-bar"><div id="my-hp" class="hp-fill" style="background:#0f8"></div></div>
-        </div>
-        <div id="timer-box">99</div>
-        <div class="hp-bar-container">
-            <div class="round-dots" id="enemy-dots">
-                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-            </div>
-            <div class="hp-bar"><div id="enemy-hp" class="hp-fill" style="background:#f30"></div></div>
+            <p>MY ID: <b id="my-id" style="color:#0f8">----</b></p>
         </div>
     </div>
 
     <script type="module">
-        const videoElement = document.getElementById('video-feed');
-        const timerDisplay = document.getElementById('timer-box');
-        
-        let timeLeft = 99;
-        let timerInterval = null;
-        let myScore = 0, enemyScore = 0;
-        let myHP = 100, enemyHP = 100;
-        let isRoundActive = false;
+        const video = document.getElementById('video-feed');
+        const bgMusic = document.getElementById('bg-music');
+        let myTeam = 1, myHP = 100, myName = "";
+        let players = {}, conns = {}, isGaming = false, isHost = true;
+        let myWins = parseInt(localStorage.getItem('neonWins')) || 0;
 
-        window.forceStartCamera = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-                videoElement.srcObject = stream;
-                document.getElementById('step1').style.display = 'none';
-                document.getElementById('step2').style.display = 'block';
-                startAI();
-            } catch (e) { alert("Camera Error"); }
+        // Profile & Music Loading
+        window.onload = () => {
+            const savedName = localStorage.getItem('neonName');
+            if(savedName) {
+                myName = savedName;
+                document.getElementById('profile-gate').style.display = 'none';
+                document.getElementById('menu').style.display = 'block';
+                updateProfileUI();
+            }
         };
 
-        const myShortId = Math.floor(1000 + Math.random() * 8999).toString();
-        const peer = new Peer(myShortId);
-        let connection = null;
-        let enemyData = {pos: [], isBlocking: false};
-        let amIBlocking = false;
+        window.saveProfile = () => {
+            const input = document.getElementById('username-input').value.trim();
+            if(input.length < 2) return alert("Name too short!");
+            myName = input;
+            localStorage.setItem('neonName', myName);
+            document.getElementById('profile-gate').style.display = 'none';
+            document.getElementById('menu').style.display = 'block';
+            updateProfileUI();
+            // Start music on first interaction (browser requirement)
+            bgMusic.play().catch(() => console.log("Music waiting for interaction"));
+        };
 
+        function updateProfileUI() {
+            document.getElementById('display-name').innerText = myName;
+            document.getElementById('win-count').innerText = myWins;
+        }
+
+        window.initCam = async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            video.srcObject = stream;
+            document.getElementById('lobby-controls').style.display = 'block';
+            bgMusic.play(); // Ensure music plays
+            startAI();
+        };
+
+        const myId = Math.floor(1000 + Math.random() * 8999).toString();
+        const peer = new Peer(myId);
         peer.on('open', id => document.getElementById('my-id').innerText = id);
-        peer.on('connection', conn => { connection = conn; setupEvents(); });
-        window.startConnection = () => { connection = peer.connect(document.getElementById('join-id').value); setupEvents(); };
+        peer.on('connection', c => { isHost = true; handleConn(c); });
 
-        function setupEvents() {
-            connection.on('open', () => {
-                document.getElementById('menu').style.display = 'none';
-                document.getElementById('ui-container').style.display = 'flex';
-                resetRound();
-            });
-            connection.on('data', data => {
-                if(data.type === 'state') {
-                    enemyData = data;
-                    enemyHP = data.hp;
-                    document.getElementById('enemy-hp').style.width = enemyHP + "%";
-                }
-                if(data.type === 'hit' && !amIBlocking && isRoundActive) {
-                    myHP -= 5;
-                    document.getElementById('my-hp').style.width = myHP + "%";
-                    if(myHP <= 0) awardPoint('enemy');
-                }
-                if(data.type === 'roundWin') awardPoint('enemy', true);
-                if(data.type === 'draw') triggerDraw();
-            });
-        }
+        window.connectPeer = () => {
+            isHost = false; 
+            const targetId = document.getElementById('join-id').value;
+            if(targetId) handleConn(peer.connect(targetId));
+        };
 
-        function resetRound() {
-            myHP = 100; enemyHP = 100; timeLeft = 99;
-            document.getElementById('my-hp').style.width = "100%";
-            document.getElementById('enemy-hp').style.width = "100%";
-            isRoundActive = true;
-            timerDisplay.style.color = "#f80";
-            startTimer();
-        }
-
-        function startTimer() {
-            if (timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-                if(!isRoundActive) return;
-                timeLeft--;
-                timerDisplay.innerText = timeLeft;
-                if (timeLeft <= 0) {
-                    if(myHP > enemyHP) awardPoint('me');
-                    else if(enemyHP > myHP) awardPoint('enemy');
-                    else {
-                        connection.send({type: 'draw'});
-                        triggerDraw();
+        function handleConn(c) {
+            c.on('open', () => {
+                conns[c.peer] = c;
+                c.on('data', data => {
+                    if(data.type === 'sync') { players[c.peer] = data; checkWinCondition(); }
+                    if(data.type === 'hit' && data.target === myId) { myHP -= 5; if(myHP <= 0) myHP = 0; }
+                    if(data.type === 'start') {
+                        isGaming = true;
+                        document.getElementById('menu').style.display = 'none';
+                        document.getElementById('ingame-ui').style.display = 'flex';
                     }
-                }
-            }, 1000);
+                });
+            });
         }
 
-        function triggerDraw() {
-            if(!isRoundActive) return;
-            isRoundActive = false;
-            clearInterval(timerInterval);
-            timerDisplay.innerText = "DRAW";
-            timerDisplay.style.color = "#fff";
-            setTimeout(resetRound, 2000);
-        }
-
-        function awardPoint(who, remoteCall = false) {
-            if(!isRoundActive) return;
-            isRoundActive = false;
-            clearInterval(timerInterval);
-
-            if(who === 'me') {
-                myScore++;
-                updateDots('my-dots', myScore, 'won');
-                if(!remoteCall) connection.send({type: 'roundWin'});
-            } else {
-                enemyScore++;
-                updateDots('enemy-dots', enemyScore, 'enemy-won');
-            }
-
-            if(myScore >= 3 || enemyScore >= 3) {
-                setTimeout(() => {
-                    alert(myScore >= 3 ? "MATCH OVER: YOU WIN!" : "MATCH OVER: ENEMY WINS!");
-                    location.reload();
-                }, 500);
-            } else {
-                setTimeout(resetRound, 2000);
+        function checkWinCondition() {
+            if(!isGaming) return;
+            const teamsAlive = new Set();
+            if(myHP > 0) teamsAlive.add(myTeam);
+            Object.values(players).forEach(p => { if(p.hp > 0) teamsAlive.add(p.team); });
+            if(teamsAlive.size === 1) {
+                const winnerTeam = Array.from(teamsAlive)[0];
+                isGaming = false;
+                if(winnerTeam === myTeam) {
+                    myWins++; localStorage.setItem('neonWins', myWins);
+                    alert("VICTORY!");
+                } else { alert("DEFEAT!"); }
+                location.reload();
             }
         }
 
-        function updateDots(id, score, className) {
-            const dots = document.getElementById(id).children;
-            for(let i=0; i<score && i<3; i++) dots[i].classList.add(className);
-        }
+        window.startGame = () => {
+            isGaming = true;
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('ingame-ui').style.display = 'flex';
+            broadcast({type: 'start'});
+        };
 
-        const canvas = document.getElementById('game-canvas');
-        const ctx = canvas.getContext('2d');
+        const sync = (pos = []) => broadcast({type: 'sync', name: myName, team: myTeam, hp: myHP, pos: pos, wins: myWins});
+        function broadcast(d) { Object.values(conns).forEach(c => { if(c.open) c.send(d); }); }
 
-        function drawWarrior(x, y, color, label, isBlocking) {
-            ctx.shadowBlur = isBlocking ? 40 : 15;
-            ctx.shadowColor = isBlocking ? "#0af" : color;
-            ctx.fillStyle = isBlocking ? "#0af" : color;
-            ctx.beginPath(); ctx.arc(x, y, 45, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "black"; ctx.fillRect(x-25, y-10, 50, 15);
-            ctx.fillStyle = "white"; ctx.font = "bold 18px Arial";
-            ctx.textAlign = "center"; ctx.fillText(label, x, y - 60);
-        }
+        const canvas = document.getElementById('game-canvas'), ctx = canvas.getContext('2d');
 
         function startAI() {
             const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5 });
-            
-            hands.onResults(results => {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
-                let myCurrentPos = [];
-                amIBlocking = false;
-
-                if (results.multiHandLandmarks) {
-                    if (results.multiHandLandmarks.length === 2) {
-                        const h1 = results.multiHandLandmarks[0][0];
-                        const h2 = results.multiHandLandmarks[1][0];
-                        if (Math.sqrt((h1.x-h2.x)**2 + (h1.y-h2.y)**2) < 0.15) amIBlocking = true;
-                    }
-
-                    results.multiHandLandmarks.forEach((landmark) => {
-                        const x = landmark[0].x * canvas.width;
-                        const y = landmark[0].y * canvas.height;
-                        myCurrentPos.push({x, y});
-                        drawWarrior(x, y, "#0f8", amIBlocking ? "BLOCK" : "YOU", amIBlocking);
-
-                        if(connection && connection.open && !amIBlocking && isRoundActive) {
-                            enemyData.pos.forEach(ep => {
-                                if(Math.sqrt((x-ep.x)**2 + (y-ep.y)**2) < 80 && !enemyData.isBlocking) {
-                                    connection.send({type: 'hit'});
-                                    if(enemyHP - 5 <= 0) awardPoint('me');
+            hands.setOptions({ maxNumHands: 2, modelComplexity: 1 });
+            hands.onResults(res => {
+                canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+                ctx.clearRect(0,0, canvas.width, canvas.height);
+                let myPos = [];
+                if(res.multiHandLandmarks) {
+                    res.multiHandLandmarks.forEach(h => {
+                        const x = h[0].x * canvas.width, y = h[0].y * canvas.height;
+                        myPos.push({x, y});
+                        if(isGaming && myHP > 0) {
+                            drawChar(x, y, myTeam, myName, myHP);
+                            Object.keys(players).forEach(id => {
+                                const p = players[id];
+                                if(p.team !== myTeam && p.hp > 0) {
+                                    p.pos.forEach(ep => {
+                                        if(Math.sqrt((x-ep.x)**2 + (y-ep.y)**2) < 60) broadcast({type: 'hit', target: id});
+                                    });
                                 }
                             });
                         }
                     });
                 }
-
-                if(connection && connection.open) {
-                    connection.send({type: 'state', pos: myCurrentPos, isBlocking: amIBlocking, hp: myHP});
-                    enemyData.pos.forEach(ep => drawWarrior(ep.x, ep.y, "#f30", enemyData.isBlocking ? "BLOCK" : "ENEMY", enemyData.isBlocking));
+                if(isGaming || Object.keys(conns).length > 0) {
+                    Object.keys(players).forEach(id => {
+                        const p = players[id];
+                        if(p.hp > 0) p.pos.forEach(pos => drawChar(pos.x, pos.y, p.team, p.name, p.hp));
+                    });
+                    sync(myPos);
                 }
             });
-
-            async function loop() {
-                if (videoElement.readyState >= 2) await hands.send({image: videoElement});
-                requestAnimationFrame(loop);
-            }
+            async function loop() { if(video.readyState >= 2) await hands.send({image: video}); requestAnimationFrame(loop); }
             loop();
+        }
+
+        function drawChar(x, y, team, name, hp) {
+            const c = team === 1 ? "#08f" : "#f30";
+            ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "white"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center"; ctx.fillText(name, x, y-60);
+            ctx.fillStyle = "#333"; ctx.fillRect(x-30, y-55, 60, 6);
+            ctx.fillStyle = c; ctx.fillRect(x-30, y-55, 60 * (hp/100), 6);
         }
     </script>
 </body>

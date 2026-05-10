@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Fight | Direct Camera Fix</title>
+    <title>Hand Fight | AI Canvas Fix</title>
     
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
@@ -12,11 +12,9 @@
     <style>
         body { margin: 0; background: #000; overflow: hidden; font-family: sans-serif; color: white; touch-action: none;}
         
-        /* The video and canvas are now separated. Video is always visible! */
         #video-feed { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 1; }
         #game-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; transform: scaleX(-1); z-index: 2; pointer-events: none; }
 
-        /* Giant Status Text so we know if it breaks */
         #status-text { position: absolute; top: 10px; left: 0; width: 100%; text-align: center; z-index: 200; font-weight: bold; font-size: 18px; color: yellow; text-shadow: 2px 2px 4px #000; pointer-events: none;}
 
         #menu { 
@@ -35,7 +33,7 @@
 </head>
 <body>
 
-    <div id="status-text">STATUS: WAITING FOR YOU TO PRESS START</div>
+    <div id="status-text">STATUS: WAITING FOR START</div>
 
     <video id="video-feed" playsinline autoplay muted></video>
     <canvas id="game-canvas"></canvas>
@@ -59,36 +57,31 @@
 
     <script type="module">
         const status = document.getElementById('status-text');
-        
-        // 1. Direct Camera Boot (Bypasses AI completely so you see yourself instantly)
         const videoElement = document.getElementById('video-feed');
         
         window.forceStartCamera = async () => {
-            status.innerText = "STATUS: ASKING FOR CAMERA PERMISSION...";
+            status.innerText = "STATUS: ASKING FOR CAMERA...";
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
                 videoElement.srcObject = stream;
                 
                 document.getElementById('step1').style.display = 'none';
                 document.getElementById('step2').style.display = 'block';
-                status.innerText = "STATUS: CAMERA ON! WAITING TO CONNECT...";
+                status.innerText = "STATUS: LOADING AI...";
                 
-                // Now that camera is safely on, wake up the AI
+                // Start AI once camera is confirmed
                 startAI();
             } catch (error) {
                 status.innerText = "ERROR: IPAD BLOCKED CAMERA!";
-                alert("Camera blocked! Go to Settings > Safari > Camera and set to 'Allow'");
             }
         };
 
-        // 2. Peer-to-Peer Connection
         const myShortId = Math.floor(1000 + Math.random() * 8999).toString();
         const peer = new Peer(myShortId, { config: { 'iceServers': [{ url: 'stun:stun.l.google.com:19302' }] } });
         let connection = null;
         let myHP = 100, enemyPos = {x:-500, y:-500};
 
         peer.on('open', id => document.getElementById('my-id').innerText = id);
-
         peer.on('connection', conn => { connection = conn; activateGame(); });
         window.startConnection = () => { connection = peer.connect(document.getElementById('join-id').value); activateGame(); };
 
@@ -96,7 +89,7 @@
             connection.on('open', () => {
                 document.getElementById('menu').style.display = 'none';
                 document.getElementById('hp-ui').style.display = 'flex';
-                status.innerText = ""; // Clear status when game starts
+                status.innerText = ""; 
             });
             connection.on('data', data => {
                 if(data.type === 'pos') enemyPos = data.val;
@@ -108,16 +101,13 @@
             });
         }
 
-        // 3. Independent Hand AI (If this breaks, camera still works!)
         const canvas = document.getElementById('game-canvas');
         const ctx = canvas.getContext('2d');
 
         function drawCharacter(x, y, color, label) {
             ctx.fillStyle = color;
             ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI*2); ctx.fill();
-            // Visor
             ctx.fillStyle = "black"; ctx.fillRect(x-25, y-10, 50, 15);
-            // Label
             ctx.fillStyle = "white"; ctx.font = "bold 20px Arial";
             ctx.textAlign = "center"; ctx.fillText(label, x, y - 55);
         }
@@ -125,14 +115,24 @@
         function startAI() {
             const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
             
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 0,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            
             hands.onResults(results => {
-                canvas.width = videoElement.videoWidth;
-                canvas.height = videoElement.videoHeight;
+                status.innerText = "STATUS: AI ACTIVE! SHOW HAND.";
+                
+                // Force canvas to match screen, not video (crucial iOS fix)
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                if (results.multiHandLandmarks && results.multiHandLandmarks[0]) {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    status.innerText = ""; // Hide status when working perfectly
                     const wrist = results.multiHandLandmarks[0][0];
-                    // Because we flipped the CSS, we use raw coordinates
                     const myX = wrist.x * canvas.width;
                     const myY = wrist.y * canvas.height;
                     
@@ -149,10 +149,14 @@
                 }
             });
 
-            // Feed the video to the AI manually
             async function feedVideo() {
-                if(!videoElement.paused && !videoElement.ended) {
-                    await hands.send({image: videoElement});
+                try {
+                    // Make sure video is actually playing and has data
+                    if (videoElement.readyState >= 2) {
+                        await hands.send({image: videoElement});
+                    }
+                } catch (e) {
+                    console.log("Waiting for AI to catch up...");
                 }
                 requestAnimationFrame(feedVideo);
             }
